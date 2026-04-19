@@ -1,107 +1,104 @@
 ---
 
-- name: run only for debian based
+- name: Run only for Debian-based systems
   when:
-    - ansible_os_family | lower != "debian"
+    - ansible_facts['os_family'] | lower != "debian"
   block:
-    - name: message
+    - name: Warn that role requires Debian-based distribution
       ansible.builtin.debug:
         msg: "This role only works with Debian-based distributions."
 
-    - name: end
+    - name: End play for non-Debian hosts
       ansible.builtin.meta: end_host
 
-- name: merge snapd configuration between defaults and custom
+- name: Merge snapd configuration between defaults and custom
   ansible.builtin.set_fact:
     snapd_services: "{{ snapd_defaults_services | union(snapd_services) | unique }}"
     snapd_files: "{{ snapd_defaults_files | union(snapd_files) | unique }}"
-    snapd_block_packages: "{{ snapd_defaults_block_packages | union(snapd_block_packages) | unique | sort }}"
+    snapd_block_packages: "{{ snapd_defaults_block_packages |
+      union(snapd_block_packages) | unique | sort }}"
 
-- name: remove snap packages
+- name: Remove snap packages
   when:
     - snapd_purge
   block:
-    - name: check installed snaps
-      ansible.builtin.command: "snap list"
+    - name: Check installed snaps
+      ansible.builtin.command: snap list
       register: snap_list_output
       changed_when: false
       failed_when: false
 
-    - name: snap packages
+    - name: Set snap package list fact
       ansible.builtin.set_fact:
         snap_list: "{{ snap_list_output.stdout_lines[1:] }}"
       when:
         - snap_list_output.rc == 0
 
-    - name: uninstall snaps
-      ansible.builtin.include_tasks: "uninstall_snaps.yml"
+    - name: Uninstall snaps
+      ansible.builtin.include_tasks: uninstall_snaps.yml
       when:
         - snap_list_output.rc == 0
         - snap_list | length > 0
+      loop: "{{ snap_list }}"
       loop_control:
         loop_var: snaps_to_remove
-      loop:
-        "{{ snap_list }}"
 
-- name: shutdown services, sockets and timers
+- name: Shut down snapd services, sockets and timers
   become: true
   ansible.builtin.service:
     name: "{{ item }}"
     state: "{{ snapd_state }}"
     enabled: "{{ snapd_enabled }}"
   failed_when: false
-  loop:
-    "{{ snapd_services }}"
+  loop: "{{ snapd_services }}"
   loop_control:
     label: "{{ item }}"
 
-- name: purge all this bullshit
+- name: Purge snapd and related artifacts
   when:
     - snapd_purge
   block:
 
-    - name: get mountpoints
+    - name: Gather mount facts
       ansible.builtin.setup:
         gather_subset:
           - mounts
 
-    - name: find nap mountpoints
+    - name: Find snap mountpoints
       ansible.builtin.set_fact:
-        snap_mounts: "{{ ansible_mounts | snap_mounts }}"
+        snap_mounts: "{{ ansible_facts['mounts'] | snap_mounts }}"
 
-    - name: unmount snap
+    - name: Unmount snap filesystems
       become: true
       ansible.posix.mount:
         path: "{{ item }}"
         state: unmounted
-      loop:
-        - "{{ snap_mounts }}"
+      loop: "{{ snap_mounts }}"
       when:
-        - snap_mounts | count > 0
+        - snap_mounts | length > 0
 
-    - name: remove snap mountpoint^
+    - name: Remove snap mountpoint entries
       become: true
       ansible.posix.mount:
         path: "{{ item }}"
         state: absent
-      loop:
-        - "{{ snap_mounts }}"
+      loop: "{{ snap_mounts }}"
       when:
-        - snap_mounts | count > 0
+        - snap_mounts | length > 0
 
-    - name: remove snapd packages
+    - name: Remove snapd packages
       become: true
       ansible.builtin.package:
         name: "{{ snapd_block_packages }}"
         state: absent
         purge: true
 
-    - name: block installation
+    - name: Block later snapd installation
       when:
         - snapd_block_packages is defined
-        - snapd_block_packages | count > 0
+        - snapd_block_packages | length > 0
       block:
-        - name: block later installations of snapd
+        - name: Deploy apt preferences to block snapd reinstall
           become: true
           ansible.builtin.template:
             src: apt/preferences.d/snapd.pref.j2
@@ -113,7 +110,7 @@
           when:
             - snapd_block_later_installation
 
-    - name: remove snapd-related directories
+    - name: Remove snapd-related directories
       become: true
       ansible.builtin.file:
         path: "{{ item }}"
@@ -122,7 +119,6 @@
       loop_control:
         label: "{{ item }}"
 
-- name: flush handlers
+- name: Flush handlers
   ansible.builtin.meta: flush_handlers
-
 ...

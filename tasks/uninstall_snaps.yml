@@ -1,19 +1,18 @@
 ---
 
-- name: uninstall snaps
+- name: Uninstall snap packages
   community.general.snap:
     name: "{{ item | split | first }}"
     state: absent
   failed_when: false
   loop: "{{ snap_list }}"
 
-- name: check installed snaps
-  ansible.builtin.command: "snap list"
+- name: Check installed snaps after removal
+  ansible.builtin.command: snap list
   register: snap_packages
   changed_when: false
 
-- name: snap packages
+- name: Update snap package list fact
   ansible.builtin.set_fact:
     snap_list: "{{ snap_packages.stdout_lines[1:] }}"
-
 ...

@@ -16,4 +16,3 @@ exclude =
 # ignore = D,E741,W503,W504,H,E501,E203
 
 max-line-length = 195
-
